@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>背景音消除</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0d0d14;
+      --surface: #16161f;
+      --surface2: #1e1e2b;
+      --border: #2a2a3d;
+      --accent: #7c6af7;
+      --accent2: #4ecdc4;
+      --text: #e2e2ec;
+      --muted: #6b6b82;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Helvetica Neue', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 52px 20px 80px;
+    }
+
+    h1 {
+      font-size: 30px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      background: linear-gradient(135deg, #7c6af7 0%, #4ecdc4 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      font-size: 14px;
+      margin-bottom: 40px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 680px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 28px;
+    }
+
+    .card-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--muted);
+      margin-bottom: 20px;
+    }
+
+    /* Upload */
+    .upload-zone {
+      border: 2px dashed var(--border);
+      border-radius: 12px;
+      padding: 52px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      position: relative;
+    }
+    .upload-zone:hover, .upload-zone.drag-over {
+      border-color: var(--accent);
+      background: rgba(124, 106, 247, 0.05);
+    }
+    .upload-zone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+    .upload-icon {
+      width: 52px; height: 52px;
+      margin: 0 auto 16px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 14px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 24px;
+    }
+    .upload-text { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+    .upload-hint { font-size: 13px; color: var(--muted); }
+
+    /* Waveform */
+    canvas {
+      width: 100%; height: 72px;
+      display: block;
+      border-radius: 8px;
+    }
+
+    /* Player */
+    .player {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .play-btn {
+      width: 36px; height: 36px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: none; cursor: pointer;
+      color: white; font-size: 12px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      transition: opacity 0.15s, transform 0.15s;
+      user-select: none;
+    }
+    .play-btn:hover { opacity: 0.85; transform: scale(1.06); }
+    .play-btn:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
+    .time {
+      font-size: 13px; color: var(--muted);
+      font-variant-numeric: tabular-nums;
+      flex: 1;
+    }
+    .file-meta { font-size: 12px; color: var(--muted); }
+
+    /* Section label */
+    .sec-label {
+      font-size: 12px; color: var(--muted);
+      margin-bottom: 8px; font-weight: 500;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .tag {
+      font-size: 10px; padding: 2px 7px;
+      border-radius: 4px; font-weight: 600;
+    }
+    .tag-before { background: rgba(107,107,130,0.18); color: var(--muted); }
+    .tag-after  { background: rgba(78,205,196,0.15);  color: var(--accent2); }
+
+    /* Controls */
+    .control-row {
+      display: flex; align-items: center;
+      gap: 14px; margin-bottom: 14px;
+    }
+    .control-row:last-of-type { margin-bottom: 0; }
+    .control-label { font-size: 13px; min-width: 110px; }
+    .control-value {
+      font-size: 13px; color: var(--accent);
+      min-width: 42px; text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    input[type="range"] {
+      flex: 1; -webkit-appearance: none;
+      height: 4px; background: var(--border);
+      border-radius: 2px; outline: none; cursor: pointer;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 15px; height: 15px;
+      border-radius: 50%; background: var(--accent); cursor: pointer;
+    }
+
+    /* Buttons */
+    .btn {
+      width: 100%; padding: 13px;
+      border: none; border-radius: 12px;
+      font-size: 14px; font-weight: 600;
+      cursor: pointer; transition: opacity 0.15s, transform 0.15s;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #7c6af7, #5b53d4);
+      color: white;
+      margin-top: 20px;
+    }
+    .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+    .btn-primary:disabled { opacity: 0.35; transform: none; cursor: not-allowed; }
+    .btn-dl {
+      background: var(--surface2); color: var(--accent2);
+      border: 1px solid var(--border); margin-top: 16px;
+    }
+    .btn-dl:hover { background: var(--border); }
+
+    /* Progress */
+    .progress-bar {
+      width: 100%; height: 3px;
+      background: var(--border); border-radius: 2px;
+      overflow: hidden; margin-top: 12px;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      border-radius: 2px; width: 0%;
+      transition: width 0.15s linear;
+    }
+    .status-text {
+      font-size: 12px; color: var(--muted);
+      margin-top: 7px; text-align: center;
+    }
+
+    .divider { height: 1px; background: var(--border); margin: 20px 0; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <h1>背景音消除</h1>
+  <p class="subtitle">上传音频，自动分析并去除背景噪音</p>
+
+  <div class="container">
+
+    <!-- Upload -->
+    <div class="card">
+      <div class="upload-zone" id="uploadZone">
+        <input type="file" id="fileInput" accept="audio/*">
+        <div class="upload-icon">🎵</div>
+        <div class="upload-text">点击或拖入音频文件</div>
+        <div class="upload-hint">支持 MP3、WAV、M4A、OGG、FLAC 等格式</div>
+      </div>
+    </div>
+
+    <!-- Original audio -->
+    <div class="card hidden" id="originalCard">
+      <div class="card-title">原始音频</div>
+      <div class="sec-label">波形预览 <span class="tag tag-before">处理前</span></div>
+      <canvas id="waveformOriginal"></canvas>
+      <div class="player">
+        <button class="play-btn" id="playOriginal" disabled>▶</button>
+        <span class="time" id="timeOriginal">0:00 / 0:00</span>
+        <span class="file-meta" id="fileMeta"></span>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="card hidden" id="controlsCard">
+      <div class="card-title">降噪设置</div>
+
+      <div class="control-row">
+        <span class="control-label">噪音采样时长</span>
+        <input type="range" id="slNoiseDur" min="0.1" max="3" step="0.1" value="0.5">
+        <span class="control-value" id="valNoiseDur">0.5s</span>
+      </div>
+
+      <div class="control-row">
+        <span class="control-label">降噪强度</span>
+        <input type="range" id="slStrength" min="0.5" max="4" step="0.1" value="2">
+        <span class="control-value" id="valStrength">2.0</span>
+      </div>
+
+      <div class="control-row">
+        <span class="control-label">底噪保留量</span>
+        <input type="range" id="slFloor" min="0.005" max="0.1" step="0.005" value="0.02">
+        <span class="control-value" id="valFloor">0.02</span>
+      </div>
+
+      <button class="btn btn-primary" id="processBtn">开始降噪处理</button>
+      <div class="progress-bar hidden" id="progressBar">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
+      <div class="status-text hidden" id="statusText"></div>
+    </div>
+
+    <!-- Result -->
+    <div class="card hidden" id="resultCard">
+      <div class="card-title">处理结果</div>
+      <div class="sec-label">波形预览 <span class="tag tag-after">处理后</span></div>
+      <canvas id="waveformProcessed"></canvas>
+      <div class="player">
+        <button class="play-btn" id="playProcessed" disabled>▶</button>
+        <span class="time" id="timeProcessed">0:00 / 0:00</span>
+      </div>
+      <button class="btn btn-dl" id="downloadBtn">⬇ 下载处理后的音频（WAV）</button>
+    </div>
+
+  </div>
+
+  <script>
+  // ─── FFT (Cooley-Tukey Radix-2, in-place) ────────────────────────────────
+  function fft(re, im) {
+    const n = re.length;
+    // bit-reversal permutation
+    let j = 0;
+    for (let i = 1; i < n; i++) {
+      let bit = n >> 1;
+      for (; j & bit; bit >>= 1) j ^= bit;
+      j ^= bit;
+      if (i < j) {
+        let t = re[i]; re[i] = re[j]; re[j] = t;
+            t = im[i]; im[i] = im[j]; im[j] = t;
+      }
+    }
+    // butterfly
+    for (let len = 2; len <= n; len <<= 1) {
+      const half = len >> 1;
+      const ang  = -2 * Math.PI / len;
+      const wr   = Math.cos(ang), wi = Math.sin(ang);
+      for (let i = 0; i < n; i += len) {
+        let ur = 1, ui = 0;
+        for (let k = 0; k < half; k++) {
+          const p = i + k, q = i + k + half;
+          const tr = ur * re[q] - ui * im[q];
+          const ti = ur * im[q] + ui * re[q];
+          re[q] = re[p] - tr; im[q] = im[p] - ti;
+          re[p] += tr;        im[p] += ti;
+          const nur = ur * wr - ui * wi;
+          ui = ur * wi + ui * wr; ur = nur;
+        }
+      }
+    }
+  }
+
+  function ifft(re, im) {
+    for (let i = 0; i < im.length; i++) im[i] = -im[i];
+    fft(re, im);
+    const n = re.length;
+    for (let i = 0; i < n; i++) { re[i] /= n; im[i] = -im[i] / n; }
+  }
+
+  // ─── Spectral Subtraction Noise Reduction ────────────────────────────────
+  async function reduceNoise(samples, sampleRate, opts = {}) {
+    const FFT   = 2048;
+    const HOP   = 512;          // 75 % overlap
+    const alpha = opts.strength     || 2.0;
+    const beta  = opts.floor        || 0.02;
+    const nSec  = opts.noiseDuration || 0.5;
+
+    // Hann window
+    const win = new Float32Array(FFT);
+    for (let i = 0; i < FFT; i++)
+      win[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / FFT));
+
+    // Pre-compute WOLA normalisation denominator
+    const outLen  = samples.length;
+    const winNorm = new Float32Array(outLen + FFT);
+    for (let pos = 0; pos < outLen + FFT; pos += HOP)
+      for (let i = 0; i < FFT && pos + i < winNorm.length; i++)
+        winNorm[pos + i] += win[i] * win[i];
+
+    // Estimate noise magnitude from first nSec seconds
+    const noiseLen    = Math.min(Math.floor(nSec * sampleRate), samples.length);
+    const noiseFrames = Math.max(1, Math.floor((noiseLen - FFT) / HOP) + 1);
+    const noiseMag    = new Float32Array(FFT / 2 + 1);
+
+    for (let f = 0; f < noiseFrames; f++) {
+      const off = f * HOP;
+      const re  = new Float32Array(FFT), im = new Float32Array(FFT);
+      for (let i = 0; i < FFT; i++)
+        re[i] = (off + i < samples.length ? samples[off + i] : 0) * win[i];
+      fft(re, im);
+      for (let k = 0; k <= FFT / 2; k++)
+        noiseMag[k] += Math.sqrt(re[k] * re[k] + im[k] * im[k]);
+    }
+    for (let k = 0; k <= FFT / 2; k++) noiseMag[k] /= noiseFrames;
+
+    // WOLA processing
+    const output      = new Float32Array(outLen + FFT);
+    const totalFrames = Math.ceil(outLen / HOP) + 1;
+
+    for (let f = 0; f < totalFrames; f++) {
+      const off = f * HOP;
+      const re  = new Float32Array(FFT), im = new Float32Array(FFT);
+
+      for (let i = 0; i < FFT; i++) {
+        const idx = off + i;
+        re[i] = (idx < samples.length ? samples[idx] : 0) * win[i];
+      }
+
+      fft(re, im);
+
+      // Spectral subtraction on positive frequencies
+      for (let k = 0; k <= FFT / 2; k++) {
+        const mag = Math.sqrt(re[k] * re[k] + im[k] * im[k]);
+        if (mag < 1e-12) continue;
+        const newMag = Math.max(beta * mag, mag - alpha * noiseMag[k]);
+        const scale  = newMag / mag;
+        re[k] *= scale;
+        im[k] *= scale;
+      }
+
+      // Restore conjugate symmetry so IFFT gives real output
+      for (let k = 1; k < FFT / 2; k++) {
+        re[FFT - k] =  re[k];
+        im[FFT - k] = -im[k];
+      }
+
+      ifft(re, im);
+
+      // Overlap-add with synthesis window
+      for (let i = 0; i < FFT; i++) {
+        const idx = off + i;
+        if (idx < output.length) output[idx] += re[i] * win[i];
+      }
+
+      // Yield every 60 frames so the browser stays responsive
+      if (f % 60 === 0) {
+        if (opts.onProgress) opts.onProgress((f + 1) / totalFrames);
+        await new Promise(r => setTimeout(r, 0));
+      }
+    }
+
+    if (opts.onProgress) opts.onProgress(1);
+
+    // Divide by OLA window sum
+    const result = new Float32Array(outLen);
+    for (let i = 0; i < outLen; i++)
+      result[i] = winNorm[i] > 0.01 ? output[i] / winNorm[i] : 0;
+
+    return result;
+  }
+
+  // ─── WAV Encoder (PCM 16-bit, mono) ──────────────────────────────────────
+  function encodeWAV(samples, sampleRate) {
+    const dataLen = samples.length * 2;
+    const buf  = new ArrayBuffer(44 + dataLen);
+    const view = new DataView(buf);
+    const str  = (off, s) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
+
+    str(0, 'RIFF'); view.setUint32(4, 36 + dataLen, true);
+    str(8, 'WAVE'); str(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);          // PCM
+    view.setUint16(22, 1, true);          // mono
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    str(36, 'data'); view.setUint32(40, dataLen, true);
+
+    for (let i = 0; i < samples.length; i++) {
+      const s = Math.max(-1, Math.min(1, samples[i]));
+      view.setInt16(44 + i * 2, s < 0 ? s * 32768 : s * 32767, true);
+    }
+    return buf;
+  }
+
+  // ─── Waveform Visualisation ───────────────────────────────────────────────
+  function drawWaveform(canvas, samples, color) {
+    const dpr = window.devicePixelRatio || 1;
+    const W   = canvas.offsetWidth;
+    const H   = canvas.offsetHeight;
+    canvas.width  = W * dpr;
+    canvas.height = H * dpr;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+
+    ctx.fillStyle = '#1e1e2b';
+    ctx.fillRect(0, 0, W, H);
+
+    const step = Math.ceil(samples.length / W);
+    const cy   = H / 2;
+
+    ctx.strokeStyle = color;
+    ctx.lineWidth   = 1;
+    ctx.beginPath();
+    for (let x = 0; x < W; x++) {
+      let min = 0, max = 0;
+      const start = x * step;
+      for (let i = 0; i < step; i++) {
+        const v = samples[start + i] || 0;
+        if (v < min) min = v;
+        if (v > max) max = v;
+      }
+      ctx.moveTo(x + 0.5, cy + min * cy * 0.88);
+      ctx.lineTo(x + 0.5, cy + max * cy * 0.88);
+    }
+    ctx.stroke();
+  }
+
+  // ─── Helpers ──────────────────────────────────────────────────────────────
+  const fmtTime = s => {
+    const m = Math.floor(s / 60), sec = Math.floor(s % 60);
+    return `${m}:${sec.toString().padStart(2, '0')}`;
+  };
+
+  // ─── Audio context (lazy) ─────────────────────────────────────────────────
+  let audioCtx = null;
+  const getCtx = () => {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    return audioCtx;
+  };
+
+  // ─── Mini audio player factory ────────────────────────────────────────────
+  function makePlayer(getBuffer, btn, timeEl) {
+    let source = null, startAt = 0, offset = 0, playing = false, raf = null;
+
+    const tick = () => {
+      if (!playing) return;
+      const buf = getBuffer();
+      if (!buf) return;
+      const elapsed = Math.min(getCtx().currentTime - startAt + offset, buf.duration);
+      timeEl.textContent = `${fmtTime(elapsed)} / ${fmtTime(buf.duration)}`;
+      if (elapsed >= buf.duration) { reset(); return; }
+      raf = requestAnimationFrame(tick);
+    };
+
+    const reset = () => {
+      if (source) { try { source.stop(); } catch (_) {} source = null; }
+      playing = false; offset = 0; btn.textContent = '▶';
+      if (raf) cancelAnimationFrame(raf);
+      const buf = getBuffer();
+      if (buf) timeEl.textContent = `0:00 / ${fmtTime(buf.duration)}`;
+    };
+
+    const pause = () => {
+      offset += getCtx().currentTime - startAt;
+      if (source) { try { source.stop(); } catch (_) {} source = null; }
+      playing = false; btn.textContent = '▶';
+      if (raf) cancelAnimationFrame(raf);
+    };
+
+    btn.addEventListener('click', () => {
+      const buf = getBuffer();
+      if (!buf) return;
+      if (playing) { pause(); return; }
+      const ctx = getCtx();
+      source = ctx.createBufferSource();
+      source.buffer = buf;
+      source.connect(ctx.destination);
+      source.onended = () => { if (playing) reset(); };
+      startAt = ctx.currentTime;
+      source.start(0, offset);
+      playing = true; btn.textContent = '⏸';
+      tick();
+    });
+
+    return { reset };
+  }
+
+  // ─── State ────────────────────────────────────────────────────────────────
+  let originalBuffer  = null;
+  let processedBuffer = null;
+  let processedSamples = null;
+
+  // ─── Players ──────────────────────────────────────────────────────────────
+  const origPlayer = makePlayer(
+    () => originalBuffer,
+    document.getElementById('playOriginal'),
+    document.getElementById('timeOriginal')
+  );
+  const procPlayer = makePlayer(
+    () => processedBuffer,
+    document.getElementById('playProcessed'),
+    document.getElementById('timeProcessed')
+  );
+
+  // ─── Slider labels ────────────────────────────────────────────────────────
+  [
+    ['slNoiseDur', 'valNoiseDur', v => v + 's'],
+    ['slStrength',  'valStrength',  v => parseFloat(v).toFixed(1)],
+    ['slFloor',     'valFloor',     v => parseFloat(v).toFixed(3)],
+  ].forEach(([id, vid, fmt]) => {
+    document.getElementById(id).addEventListener('input', function () {
+      document.getElementById(vid).textContent = fmt(this.value);
+    });
+  });
+
+  // ─── File upload ──────────────────────────────────────────────────────────
+  const uploadZone = document.getElementById('uploadZone');
+  uploadZone.addEventListener('dragover',  e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+  uploadZone.addEventListener('dragleave', ()  => uploadZone.classList.remove('drag-over'));
+  uploadZone.addEventListener('drop', e => {
+    e.preventDefault(); uploadZone.classList.remove('drag-over');
+    if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
+  });
+  document.getElementById('fileInput').addEventListener('change', e => {
+    if (e.target.files[0]) loadFile(e.target.files[0]);
+  });
+
+  async function loadFile(file) {
+    const ctx = getCtx();
+    const arrayBuf = await file.arrayBuffer();
+
+    try {
+      originalBuffer = await ctx.decodeAudioData(arrayBuf);
+    } catch (err) {
+      alert('无法解码音频文件，请尝试其他格式。');
+      return;
+    }
+
+    processedBuffer = null; processedSamples = null;
+    origPlayer.reset(); procPlayer.reset();
+
+    // Show panels
+    ['originalCard', 'controlsCard'].forEach(id =>
+      document.getElementById(id).classList.remove('hidden'));
+    document.getElementById('resultCard').classList.add('hidden');
+    document.getElementById('playOriginal').disabled = false;
+
+    // Draw waveform
+    const wc = document.getElementById('waveformOriginal');
+    requestAnimationFrame(() => drawWaveform(wc, originalBuffer.getChannelData(0), '#7c6af7'));
+
+    // Meta
+    const { duration, sampleRate, numberOfChannels } = originalBuffer;
+    document.getElementById('fileMeta').textContent =
+      `${fmtTime(duration)} · ${sampleRate} Hz · ${numberOfChannels === 1 ? '单声道' : '立体声'}`;
+    document.getElementById('timeOriginal').textContent = `0:00 / ${fmtTime(duration)}`;
+  }
+
+  // ─── Processing ───────────────────────────────────────────────────────────
+  document.getElementById('processBtn').addEventListener('click', async () => {
+    if (!originalBuffer) return;
+
+    const btn        = document.getElementById('processBtn');
+    const bar        = document.getElementById('progressBar');
+    const fill       = document.getElementById('progressFill');
+    const status     = document.getElementById('statusText');
+
+    btn.disabled = true;
+    bar.classList.remove('hidden');
+    status.classList.remove('hidden');
+    status.textContent = '正在分析噪音频谱…';
+    fill.style.width   = '3%';
+
+    // Mix down to mono
+    const { length, sampleRate, numberOfChannels } = originalBuffer;
+    const mono = new Float32Array(length);
+    for (let c = 0; c < numberOfChannels; c++) {
+      const ch = originalBuffer.getChannelData(c);
+      for (let i = 0; i < length; i++) mono[i] += ch[i] / numberOfChannels;
+    }
+
+    const opts = {
+      noiseDuration: parseFloat(document.getElementById('slNoiseDur').value),
+      strength:      parseFloat(document.getElementById('slStrength').value),
+      floor:         parseFloat(document.getElementById('slFloor').value),
+      onProgress: p => {
+        fill.style.width = (3 + p * 93) + '%';
+        if (p > 0) status.textContent = `处理中… ${Math.round(p * 100)}%`;
+      },
+    };
+
+    processedSamples = await reduceNoise(mono, sampleRate, opts);
+
+    // Wrap in AudioBuffer for playback
+    const ctx = getCtx();
+    processedBuffer = ctx.createBuffer(1, processedSamples.length, sampleRate);
+    processedBuffer.copyToChannel(processedSamples, 0);
+
+    fill.style.width     = '100%';
+    status.textContent   = '✓ 处理完成';
+    procPlayer.reset();
+    document.getElementById('playProcessed').disabled = false;
+
+    setTimeout(() => {
+      bar.classList.add('hidden');
+      status.classList.add('hidden');
+      fill.style.width = '0%';
+      btn.disabled = false;
+    }, 1400);
+
+    // Show result
+    document.getElementById('resultCard').classList.remove('hidden');
+    const wc = document.getElementById('waveformProcessed');
+    requestAnimationFrame(() => drawWaveform(wc, processedSamples, '#4ecdc4'));
+    document.getElementById('timeProcessed').textContent = `0:00 / ${fmtTime(processedBuffer.duration)}`;
+  });
+
+  // ─── Download ─────────────────────────────────────────────────────────────
+  document.getElementById('downloadBtn').addEventListener('click', () => {
+    if (!processedSamples || !originalBuffer) return;
+    const wav  = encodeWAV(processedSamples, originalBuffer.sampleRate);
+    const blob = new Blob([wav], { type: 'audio/wav' });
+    const url  = URL.createObjectURL(blob);
+    const a    = Object.assign(document.createElement('a'), { href: url, download: 'denoised.wav' });
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  });
+  </script>
+</body>
+</html>
